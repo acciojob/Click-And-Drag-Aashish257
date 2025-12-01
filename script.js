@@ -1,156 +1,212 @@
 // Your code here.
-// Draggable cubes using Pointer Events
 (() => {
   const container = document.querySelector('.items');
   if (!container) return;
 
-  // make sure container is positioned so absolute children are contained
-  const containerStyle = getComputedStyle(container);
-  if (containerStyle.position === 'static') {
-    container.style.position = 'relative';
-  }
+  // Ensure container can scroll and position children absolutely when dragged
+  const cs = getComputedStyle(container);
+  if (cs.position === 'static') container.style.position = 'relative';
+  container.style.overflow = container.style.overflow || 'auto';
+  container.style.touchAction = 'none'; // help with pointer behavior
 
+  // ---------- Utility ----------
+  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+
+  // ---------- ITEM DRAG (as before) ----------
   let draggingEl = null;
   let pointerId = null;
-  let offsetX = 0; // pointer offset inside element
-  let offsetY = 0;
-  let startLeft = 0;
-  let startTop = 0;
+  let offsetX = 0, offsetY = 0;
 
-  // Utility: clamp value between min and max
-  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-
-  // When pointer goes down on an item
-  function onPointerDown(e) {
-    // only left button for mouse (button === 0) — pointerdown for touch has button === 0 too
+  function onItemPointerDown(e) {
+    // only react to primary button for mouse
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    // Prevent container panning when dragging an item
+    e.stopPropagation();
 
     const el = e.currentTarget;
     draggingEl = el;
     pointerId = e.pointerId;
 
-    // bring to front while dragging
+    // bring forward
     el.style.zIndex = 1000;
+    el.style.userSelect = 'none';
+    el.style.touchAction = 'none';
 
-    // Get bounding rects
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
 
-    // Convert element to absolute positioned inside container while keeping current visual position
-    // Compute left/top relative to container
+    // convert to absolute positioned inside container (keep current appearance)
     const left = elRect.left - containerRect.left + container.scrollLeft;
     const top = elRect.top - containerRect.top + container.scrollTop;
 
-    // Set absolute positioning
     el.style.position = 'absolute';
     el.style.left = left + 'px';
     el.style.top = top + 'px';
-    el.style.touchAction = 'none'; // prevent scrolling while dragging
 
-    startLeft = left;
-    startTop = top;
-
-    // pointer offset inside element (so mouse cursor stays at same relative point)
     offsetX = e.clientX - elRect.left;
     offsetY = e.clientY - elRect.top;
 
-    // capture the pointer to this element so pointermove/up still fire even if cursor leaves element
-    el.setPointerCapture(pointerId);
+    try { el.setPointerCapture(pointerId); } catch (err) {}
 
-    // listen for pointermove and pointerup on the element itself
-    el.addEventListener('pointermove', onPointerMove);
-    el.addEventListener('pointerup', onPointerUp);
-    el.addEventListener('pointercancel', onPointerUp);
+    el.addEventListener('pointermove', onItemPointerMove);
+    el.addEventListener('pointerup', onItemPointerUp);
+    el.addEventListener('pointercancel', onItemPointerUp);
   }
 
-  // While pointer moves
-  function onPointerMove(e) {
+  function onItemPointerMove(e) {
     if (!draggingEl || e.pointerId !== pointerId) return;
-
-    const containerRect = container.getBoundingClientRect();
     const el = draggingEl;
+    const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
 
-    // desired left/top relative to container
     let desiredLeft = e.clientX - containerRect.left - offsetX + container.scrollLeft;
     let desiredTop  = e.clientY - containerRect.top  - offsetY + container.scrollTop;
 
-    // boundaries (keep entire element inside container)
-    const elWidth  = elRect.width;
-    const elHeight = elRect.height;
-    const minLeft = 0;
-    const minTop  = 0;
-    const maxLeft = container.clientWidth - elWidth;
-    const maxTop  = container.clientHeight - elHeight;
+    const maxLeft = container.clientWidth - elRect.width;
+    const maxTop  = container.clientHeight - elRect.height;
 
-    // clamp
-    desiredLeft = clamp(desiredLeft, minLeft, Math.max(minLeft, maxLeft));
-    desiredTop  = clamp(desiredTop,  minTop,  Math.max(minTop, maxTop));
+    desiredLeft = clamp(desiredLeft, 0, Math.max(0, maxLeft));
+    desiredTop  = clamp(desiredTop,  0, Math.max(0, maxTop));
 
-    // apply (smooth movement achieved by setting directly; you can add CSS transition for easing if wanted)
     el.style.left = desiredLeft + 'px';
     el.style.top  = desiredTop + 'px';
   }
 
-  // When pointer is released or cancelled
-  function onPointerUp(e) {
+  function onItemPointerUp(e) {
     if (!draggingEl || e.pointerId !== pointerId) return;
-
     const el = draggingEl;
 
-    // release capture and remove listeners
     try { el.releasePointerCapture(pointerId); } catch (err) {}
-    el.removeEventListener('pointermove', onPointerMove);
-    el.removeEventListener('pointerup', onPointerUp);
-    el.removeEventListener('pointercancel', onPointerUp);
+    el.removeEventListener('pointermove', onItemPointerMove);
+    el.removeEventListener('pointerup', onItemPointerUp);
+    el.removeEventListener('pointercancel', onItemPointerUp);
 
-    // drop: ensure inside bounds again (safety)
-    const containerRect = container.getBoundingClientRect();
+    // clamp final position
     const elRect = el.getBoundingClientRect();
-    const elWidth  = elRect.width;
-    const elHeight = elRect.height;
-
-    let left = parseFloat(el.style.left) || 0;
-    let top  = parseFloat(el.style.top)  || 0;
-    const maxLeft = container.clientWidth - elWidth;
-    const maxTop  = container.clientHeight - elHeight;
-    left = clamp(left, 0, Math.max(0, maxLeft));
-    top  = clamp(top,  0, Math.max(0, maxTop));
+    const left = clamp(parseFloat(el.style.left) || 0, 0, Math.max(0, container.clientWidth - elRect.width));
+    const top  = clamp(parseFloat(el.style.top)  || 0, 0, Math.max(0, container.clientHeight - elRect.height));
     el.style.left = left + 'px';
-    el.style.top  = top  + 'px';
+    el.style.top  = top + 'px';
 
-    // reset z-index
     el.style.zIndex = '';
-
-    // clear
     draggingEl = null;
     pointerId = null;
   }
 
-  // Attach pointerdown to all current and future .item elements inside container
-  function attachHandlersToItem(item) {
-    // prevent default dragging image behavior
+  function attachItemHandlers(item) {
     item.style.userSelect = 'none';
-    item.addEventListener('pointerdown', onPointerDown);
+    item.addEventListener('pointerdown', onItemPointerDown);
   }
 
-  // Initialize: attach to existing items
-  const items = container.querySelectorAll('.item');
-  items.forEach(attachHandlersToItem);
+  container.querySelectorAll('.item').forEach(attachItemHandlers);
 
-  // If items can be added dynamically, you could use a MutationObserver to auto-attach.
-  // Example (optional):
-  const mo = new MutationObserver(mutations => {
-    for (const m of mutations) {
-      for (const n of m.addedNodes) {
-        if (n.nodeType === 1 && n.matches('.item')) attachHandlersToItem(n);
-        // also handle if a subtree contains items
-        if (n.nodeType === 1) {
-          n.querySelectorAll && n.querySelectorAll('.item').forEach(attachHandlersToItem);
-        }
-      }
+  // If items are added later
+  new MutationObserver(muts => {
+    muts.forEach(m => {
+      m.addedNodes.forEach(n => {
+        if (n.nodeType === 1 && n.matches('.item')) attachItemHandlers(n);
+        if (n.nodeType === 1) n.querySelectorAll && n.querySelectorAll('.item').forEach(attachItemHandlers);
+      });
+    });
+  }).observe(container, { childList: true, subtree: true });
+
+  // ---------- CONTAINER DRAG-TO-SCROLL (panning) ----------
+  // This implements click-and-drag panning for the container itself.
+  let isPanning = false;
+  let panStartX = 0, panStartY = 0;
+  let scrollStartX = 0, scrollStartY = 0;
+  let activePanPointerId = null;
+
+  function onContainerPointerDown(e) {
+    // If the pointerdown happened on an .item (or inside), don't start container panning;
+    // item handler will have called stopPropagation() and this won't run in that case.
+    // However tests may directly target .items — allow panning then.
+    if (e.target.closest && e.target.closest('.item')) {
+      // precaution: if the event bubbled despite item handler, avoid panning
+      return;
     }
-  });
-  mo.observe(container, { childList: true, subtree: true });
+
+    // only primary mouse button
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    isPanning = true;
+    activePanPointerId = e.pointerId;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    scrollStartX = container.scrollLeft;
+    scrollStartY = container.scrollTop;
+
+    container.style.cursor = 'grabbing';
+    try { container.setPointerCapture(activePanPointerId); } catch (err) {}
+
+    container.addEventListener('pointermove', onContainerPointerMove);
+    container.addEventListener('pointerup', onContainerPointerUp);
+    container.addEventListener('pointercancel', onContainerPointerUp);
+  }
+
+  function onContainerPointerMove(e) {
+    if (!isPanning || e.pointerId !== activePanPointerId) return;
+    // delta
+    const dx = e.clientX - panStartX;
+    const dy = e.clientY - panStartY;
+
+    // move scroll opposite to mouse movement (drag content)
+    container.scrollLeft = scrollStartX - dx;
+    container.scrollTop  = scrollStartY - dy;
+  }
+
+  function onContainerPointerUp(e) {
+    if (!isPanning || e.pointerId !== activePanPointerId) return;
+    isPanning = false;
+    try { container.releasePointerCapture(activePanPointerId); } catch (err) {}
+    container.style.cursor = '';
+    container.removeEventListener('pointermove', onContainerPointerMove);
+    container.removeEventListener('pointerup', onContainerPointerUp);
+    container.removeEventListener('pointercancel', onContainerPointerUp);
+    activePanPointerId = null;
+  }
+
+  // Attach to container for pointer events
+  container.addEventListener('pointerdown', onContainerPointerDown);
+
+  // ---------- MOUSE EVENT FALLBACK for environments/tests that dispatch mouse events (Cypress) ----------
+  // Cypress often uses mouse events like mousedown/mousemove/mouseup via trigger(). The pointer handlers above will usually still be executed
+  // by the browser, but to be robust we also add a mouse fallback for container panning.
+  let mousePanning = false;
+  let mousePanStartX = 0, mousePanStartY = 0, mouseScrollStartX = 0, mouseScrollStartY = 0;
+
+  function onContainerMouseDown(e) {
+    // ignore if started on an item
+    if (e.target.closest && e.target.closest('.item')) return;
+    if (e.button !== 0) return;
+    mousePanning = true;
+    mousePanStartX = e.pageX;
+    mousePanStartY = e.pageY;
+    mouseScrollStartX = container.scrollLeft;
+    mouseScrollStartY = container.scrollTop;
+    container.style.cursor = 'grabbing';
+    window.addEventListener('mousemove', onContainerMouseMove);
+    window.addEventListener('mouseup', onContainerMouseUp);
+    e.preventDefault();
+  }
+
+  function onContainerMouseMove(e) {
+    if (!mousePanning) return;
+    const dx = e.pageX - mousePanStartX;
+    const dy = e.pageY - mousePanStartY;
+    container.scrollLeft = mouseScrollStartX - dx;
+    container.scrollTop  = mouseScrollStartY - dy;
+  }
+
+  function onContainerMouseUp(e) {
+    if (!mousePanning) return;
+    mousePanning = false;
+    container.style.cursor = '';
+    window.removeEventListener('mousemove', onContainerMouseMove);
+    window.removeEventListener('mouseup', onContainerMouseUp);
+  }
+
+  container.addEventListener('mousedown', onContainerMouseDown);
 
 })();
