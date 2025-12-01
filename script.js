@@ -1,210 +1,176 @@
 // Your code here.
 (() => {
   const container = document.querySelector('.items');
-  if (!container) return;
-
-  // Ensure container is relative (your CSS already sets position:relative)
-  const containerRect = () => container.getBoundingClientRect();
-
-  // Utility clamp
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-
-  // We'll animate position updates via rAF for smoothness
-  let rafId = null;
-  function raf(fn) {
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = requestAnimationFrame(() => { rafId = null; fn(); });
+  if (!container) {
+    console.warn('No .items element found');
+    return;
   }
 
-  // State for current drag
-  let activeEl = null;
-  let activePointerId = null;
-  let pointerStartX = 0, pointerStartY = 0;
-  let elStartLeft = 0, elStartTop = 0;
+  // Make sure container is scrollable
+  container.style.overflowX = container.style.overflowX || 'auto';
+  container.style.overflowY = container.style.overflowY || 'hidden';
+  container.style.touchAction = container.style.touchAction || 'none';
+  container.style.userSelect = container.style.userSelect || 'none';
+
+  // ---------- Item drag logic (pointer-based) ----------
+  let dragEl = null, dragPointerId = null;
   let grabOffsetX = 0, grabOffsetY = 0;
-  let moved = false; // to detect click-without-drag
-  const MOVE_THRESHOLD = 4; // px
 
-  function toContainerCoords(pageX, pageY) {
-    const rect = containerRect();
-    // left/top relative to container's content box in viewport coordinates
-    return {
-      x: pageX - rect.left + container.scrollLeft,
-      y: pageY - rect.top  + container.scrollTop
-    };
-  }
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 
-  function startDrag(e) {
-    // Only primary mouse button
+  function startItemDrag(e){
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
 
-    activeEl = e.currentTarget;
-    activePointerId = e.pointerId;
+    dragEl = e.currentTarget;
+    dragPointerId = e.pointerId;
 
-    // compute element and container rects
-    const cRect = containerRect();
-    const elRect = activeEl.getBoundingClientRect();
+    const cRect = container.getBoundingClientRect();
+    const elRect = dragEl.getBoundingClientRect();
 
-    // pointer offset inside element (so cursor holds same spot on element)
     grabOffsetX = e.clientX - elRect.left;
     grabOffsetY = e.clientY - elRect.top;
 
-    // compute element left/top relative to container (including scroll)
-    elStartLeft = elRect.left - cRect.left + container.scrollLeft;
-    elStartTop  = elRect.top  - cRect.top  + container.scrollTop;
+    const left = elRect.left - cRect.left + container.scrollLeft;
+    const top  = elRect.top  - cRect.top  + container.scrollTop;
 
-    pointerStartX = e.clientX;
-    pointerStartY = e.clientY;
-    moved = false;
+    dragEl.style.position = 'absolute';
+    dragEl.style.left = left + 'px';
+    dragEl.style.top  = top  + 'px';
+    dragEl.style.zIndex = 1000;
+    dragEl.style.touchAction = 'none';
+    try { dragEl.setPointerCapture(dragPointerId); } catch(e){}
 
-    // switch element to absolute inside container, preserving visual spot
-    activeEl.style.position = 'absolute';
-    activeEl.style.left = elStartLeft + 'px';
-    activeEl.style.top  = elStartTop  + 'px';
-    activeEl.style.zIndex = 1000;
-    activeEl.style.touchAction = 'none';
-    activeEl.setPointerCapture && activeEl.setPointerCapture(activePointerId);
-
-    // bind move/up listeners to element (pointer capture keeps events coming)
-    activeEl.addEventListener('pointermove', onPointerMove);
-    activeEl.addEventListener('pointerup', onPointerUp);
-    activeEl.addEventListener('pointercancel', onPointerUp);
+    dragEl.addEventListener('pointermove', onItemPointerMove);
+    dragEl.addEventListener('pointerup', onItemPointerUp);
+    dragEl.addEventListener('pointercancel', onItemPointerUp);
   }
 
-  function onPointerMove(e) {
-    if (!activeEl || e.pointerId !== activePointerId) return;
-    // detect movement
-    if (!moved) {
-      const dx = Math.abs(e.clientX - pointerStartX);
-      const dy = Math.abs(e.clientY - pointerStartY);
-      if (dx >= MOVE_THRESHOLD || dy >= MOVE_THRESHOLD) moved = true;
-    }
+  function onItemPointerMove(e){
+    if (!dragEl || e.pointerId !== dragPointerId) return;
+    const cRect = container.getBoundingClientRect();
+    const elRect = dragEl.getBoundingClientRect();
 
-    // calculate desired left/top within container coordinates
-    const cRect = containerRect();
-    const elRect = activeEl.getBoundingClientRect();
-    // desired left = pointer's container-relative x minus grab offset + scroll
     let desiredLeft = e.clientX - cRect.left - grabOffsetX + container.scrollLeft;
     let desiredTop  = e.clientY - cRect.top  - grabOffsetY + container.scrollTop;
 
-    // element dimensions as rendered (transforms don't change boundingRect size)
-    const elW = elRect.width;
-    const elH = elRect.height;
-
     // clamp so element stays fully inside container
-    const maxLeft = Math.max(0, container.clientWidth - elW);
-    const maxTop  = Math.max(0, container.clientHeight - elH);
+    const maxLeft = Math.max(0, container.clientWidth - elRect.width);
+    const maxTop  = Math.max(0, container.clientHeight - elRect.height);
 
     desiredLeft = clamp(desiredLeft, 0, maxLeft);
     desiredTop  = clamp(desiredTop,  0, maxTop);
 
-    // apply via rAF for smoother position updates
-    raf(() => {
-      activeEl.style.left = desiredLeft + 'px';
-      activeEl.style.top  = desiredTop  + 'px';
-    });
+    dragEl.style.left = desiredLeft + 'px';
+    dragEl.style.top  = desiredTop + 'px';
   }
 
-  function onPointerUp(e) {
-    if (!activeEl || e.pointerId !== activePointerId) return;
-    // release capture
-    try { activeEl.releasePointerCapture && activeEl.releasePointerCapture(activePointerId); } catch(_) {}
-
-    // remove listeners
-    activeEl.removeEventListener('pointermove', onPointerMove);
-    activeEl.removeEventListener('pointerup', onPointerUp);
-    activeEl.removeEventListener('pointercancel', onPointerUp);
-
-    // If user didn't move beyond threshold treat as click: keep it in same place (we already preserved it)
-    // Final clamp to ensure inside bounds
-    const elRect = activeEl.getBoundingClientRect();
-    let left = parseFloat(activeEl.style.left) || 0;
-    let top  = parseFloat(activeEl.style.top)  || 0;
-
-    const maxLeft = Math.max(0, container.clientWidth - elRect.width);
-    const maxTop  = Math.max(0, container.clientHeight - elRect.height);
-    left = clamp(left, 0, maxLeft);
-    top  = clamp(top,  0, maxTop);
-
-    // snap back inside instantly (you can animate if you like)
-    activeEl.style.left = left + 'px';
-    activeEl.style.top  = top  + 'px';
-
-    // clear styles we changed except position/left/top so element stays where dropped
-    activeEl.style.zIndex = '';
-    activeEl.style.touchAction = '';
-    // leave position:absolute so element stays in place after dragging.
-    // (If you prefer to return to document flow, you would need more logic to insert it back.)
-
-    activeEl = null;
-    activePointerId = null;
-    moved = false;
+  function onItemPointerUp(e){
+    if (!dragEl || e.pointerId !== dragPointerId) return;
+    try { dragEl.releasePointerCapture && dragEl.releasePointerCapture(dragPointerId); } catch(e){}
+    dragEl.removeEventListener('pointermove', onItemPointerMove);
+    dragEl.removeEventListener('pointerup', onItemPointerUp);
+    dragEl.removeEventListener('pointercancel', onItemPointerUp);
+    // final clamp
+    const elRect = dragEl.getBoundingClientRect();
+    const left = clamp(parseFloat(dragEl.style.left)||0, 0, Math.max(0, container.clientWidth - elRect.width));
+    const top  = clamp(parseFloat(dragEl.style.top)||0, 0, Math.max(0, container.clientHeight - elRect.height));
+    dragEl.style.left = left + 'px';
+    dragEl.style.top  = top + 'px';
+    dragEl.style.zIndex = '';
+    dragEl = null; dragPointerId = null;
   }
 
-  // Attach pointerdown to each item
-  function attach(item) {
-    // ensure item has no native selection/drag behaviors
-    item.style.userSelect = item.style.userSelect || 'none';
-    item.style.touchAction = item.style.touchAction || 'none';
-    item.addEventListener('pointerdown', startDrag);
-  }
-
-  const items = container.querySelectorAll('.item');
-  items.forEach(attach);
-
-  // If items added dynamically, observe and attach
-  const mo = new MutationObserver(muts => {
-    muts.forEach(m => {
-      m.addedNodes.forEach(n => {
-        if (n.nodeType === 1 && n.matches('.item')) attach(n);
-        if (n.nodeType === 1) n.querySelectorAll && n.querySelectorAll('.item').forEach(attach);
-      });
-    });
+  container.querySelectorAll('.item').forEach(it => {
+    it.style.touchAction = it.style.touchAction || 'none';
+    it.addEventListener('pointerdown', startItemDrag);
   });
-  mo.observe(container, { childList: true, subtree: true });
 
-  // Mouse fallback for environments that dispatch only mouse events (Cypress, old browsers)
-  let mouseActive = false;
-  function onMouseDown(e) {
-    // Find nearest item under the event target (in case event dispatched on child)
-    const it = e.target.closest && e.target.closest('.item');
-    if (!it) return;
-    // synthesize a pointer-like object and call startDrag
-    // create a small wrapper to emulate pointerId & clientX/Y
-    const fake = {
-      pointerType: 'mouse',
-      button: e.button,
-      pointerId: 1,
-      clientX: e.clientX,
-      clientY: e.clientY,
-      currentTarget: it,
-      preventDefault: () => e.preventDefault(),
-      stopPropagation: () => e.stopPropagation()
-    };
-    mouseActive = true;
-    startDrag(fake);
-  }
-  function onMouseMove(e) {
-    if (!mouseActive || !activeEl) return;
-    const fake = {
-      pointerId: activePointerId || 1,
-      clientX: e.clientX,
-      clientY: e.clientY
-    };
-    onPointerMove(fake);
-  }
-  function onMouseUp(e) {
-    if (!mouseActive || !activeEl) return;
-    const fake = {
-      pointerId: activePointerId || 1
-    };
-    onPointerUp(fake);
-    mouseActive = false;
-  }
-  document.addEventListener('mousedown', onMouseDown, { passive: false });
-  window.addEventListener('mousemove', onMouseMove, { passive: true });
-  window.addEventListener('mouseup', onMouseUp, { passive: true });
+  // ---------- Container panning (responds to both pointer and synthetic mouse events) ----------
+  let panning = false;
+  let panStartPageX = 0, panStartPageY = 0;
+  let panStartScrollLeft = 0, panStartScrollTop = 0;
+  let activePointerId = null;
 
+  function startPanFromEvent(e){
+    // if event started over an item, don't pan (item drag should have stopped propagation)
+    if (e.target.closest && e.target.closest('.item')) return false;
+
+    // use pageX/pageY if available (Cypress sets pageX)
+    const px = (e.pageX !== undefined) ? e.pageX : e.clientX;
+    const py = (e.pageY !== undefined) ? e.pageY : e.clientY;
+
+    // only primary mouse
+    if (e.button !== undefined && e.button !== 0) return false;
+
+    panning = true;
+    panStartPageX = px;
+    panStartPageY = py;
+    panStartScrollLeft = container.scrollLeft;
+    panStartScrollTop  = container.scrollTop;
+    activePointerId = e.pointerId !== undefined ? e.pointerId : 'mouse';
+    container.classList && container.classList.add('active');
+
+    // attach move/up for pointer events or rely on window for mouse fallback
+    if (e.type.startsWith('pointer')){
+      try { container.setPointerCapture && container.setPointerCapture(activePointerId); } catch(e){}
+      container.addEventListener('pointermove', onPointerPanMove);
+      container.addEventListener('pointerup', onPointerPanUp);
+      container.addEventListener('pointercancel', onPointerPanUp);
+    }
+    return true;
+  }
+
+  function onPointerPanMove(e){
+    if (!panning) return;
+    // prefer pageX/pageY
+    const px = (e.pageX !== undefined) ? e.pageX : e.clientX;
+    const dx = px - panStartPageX;
+    const newScroll = panStartScrollLeft - dx;
+    // clamp
+    const clamped = Math.max(0, Math.min(newScroll, container.scrollWidth - container.clientWidth));
+    if (container.scrollLeft !== clamped) container.scrollLeft = clamped;
+  }
+
+  function onPointerPanUp(e){
+    if (!panning) return;
+    panning = false;
+    try { container.releasePointerCapture && container.releasePointerCapture(activePointerId); } catch(e){}
+    container.classList && container.classList.remove('active');
+    container.removeEventListener('pointermove', onPointerPanMove);
+    container.removeEventListener('pointerup', onPointerPanUp);
+    container.removeEventListener('pointercancel', onPointerPanUp);
+    activePointerId = null;
+  }
+
+  // Pointer handlers (real user / some Cypress setups)
+  container.addEventListener('pointerdown', (e) => {
+    startPanFromEvent(e);
+    // prevent default to ensure synthetic events are handled consistently
+    e.preventDefault();
+  }, { passive: false });
+
+  // Mouse fallback for Cypress synthetic events (which often use mouse events with pageX/pageY)
+  let mouseMoveHandler = null, mouseUpHandler = null;
+  container.addEventListener('mousedown', (e) => {
+    // If started on .item, item handler stops propagation - this will not run
+    const started = startPanFromEvent(e);
+    if (!started) return;
+    // attach window-level handlers to catch synthetic mousemove/mouseup
+    mouseMoveHandler = function(ev){ if (!panning) return; const px = (ev.pageX!==undefined)?ev.pageX:ev.clientX; const dx = px - panStartPageX; const newScroll = panStartScrollLeft - dx; const clamped = Math.max(0, Math.min(newScroll, container.scrollWidth - container.clientWidth)); if (container.scrollLeft !== clamped) container.scrollLeft = clamped; };
+    mouseUpHandler = function(ev){ if (!panning) return; panning = false; container.classList && container.classList.remove('active'); window.removeEventListener('mousemove', mouseMoveHandler); window.removeEventListener('mouseup', mouseUpHandler); mouseMoveHandler = null; mouseUpHandler = null; };
+    window.addEventListener('mousemove', mouseMoveHandler);
+    window.addEventListener('mouseup', mouseUpHandler);
+    e.preventDefault();
+  }, { passive: false });
+
+  // A tiny helper you can call from DevTools/Cypress to check bounding rect / scroll values
+  window.__itemsDebug = () => {
+    const r = container.getBoundingClientRect();
+    console.log('rect', r, 'scrollLeft', container.scrollLeft, 'scrollWidth', container.scrollWidth, 'clientWidth', container.clientWidth);
+    return { rect: r, scrollLeft: container.scrollLeft, scrollWidth: container.scrollWidth, clientWidth: container.clientWidth };
+  };
+
+  // Prevent native dragstart
+  container.addEventListener('dragstart', e => e.preventDefault());
 })();
