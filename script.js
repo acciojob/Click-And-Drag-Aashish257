@@ -7,9 +7,8 @@ let scrollLeft;
 slider.addEventListener('mousedown', (e) => {
   isDown = true;
   slider.classList.add('active');
-  // Capture initial starting point
-  startX = e.pageX - slider.offsetLeft;
-  // Capture current scroll position
+  // Use raw page coordinates to handle the CSS transform safely
+  startX = e.pageX;
   scrollLeft = slider.scrollLeft;
 });
 
@@ -26,11 +25,8 @@ slider.addEventListener('mouseup', () => {
 slider.addEventListener('mousemove', (e) => {
   if (!isDown) return;
   e.preventDefault();
-  
-  // Calculate how far the mouse has moved
-  const x = e.pageX - slider.offsetLeft;
-  const walk = (x - startX) * 3; // Scroll speed multiplier
-  
-  // Update the scroll position of the container
+  const x = e.pageX;
+  // Calculate raw distance moved
+  const walk = (x - startX) * 3; 
   slider.scrollLeft = scrollLeft - walk;
 });
