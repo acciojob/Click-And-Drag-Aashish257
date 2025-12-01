@@ -1,82 +1,89 @@
 // Your code here.
-(() => {
-  const slider = document.querySelector('.items');
-  if (!slider) {
-    console.warn('.items not found');
-    return;
-  }
+document.addEventListener('DOMContentLoaded', () => {
+    const container = document.querySelector('.items');
+    if (!container) return;
 
-  // State
-  let isDown = false;
-  let startPageX = 0;
-  let startScrollLeft = 0;
+    if (getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+    }
 
-  // helper to read pageX robustly
-  const pageXFromEvent = (e) => (e && (e.pageX !== undefined)) ? e.pageX : (e && e.clientX) || 0;
+    let draggingEl = null;
+    let pointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
 
-  // Mouse handlers (Cypress uses mouse events with pageX/pageY)
-  slider.addEventListener('mousedown', function (e) {
-    // only primary button
-    if (typeof e.button === 'number' && e.button !== 0) return;
-    isDown = true;
-    startPageX = pageXFromEvent(e);
-    startScrollLeft = slider.scrollLeft;
-    slider.classList && slider.classList.add('active');
-    // ensure we can capture synthetic moves reliably
-    e.preventDefault && e.preventDefault();
-  }, { passive: false });
+    const items = container.querySelectorAll('.item');
+    items.forEach(item => {
+        item.style.touchAction = 'none';
+        item.style.userSelect = 'none';
+        item.addEventListener('pointerdown', onPointerDown);
+    });
 
-  slider.addEventListener('mousemove', function (e) {
-    if (!isDown) return;
-    const px = pageXFromEvent(e);
-    const dx = px - startPageX;
-    // invert so dragging left increases scrollLeft
-    slider.scrollLeft = startScrollLeft - dx;
-    e.preventDefault && e.preventDefault();
-  }, { passive: false });
+    function onPointerDown(e) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
 
-  // End drag on mouseup anywhere (window) — Cypress triggers mouseup on element but safe to handle globally
-  window.addEventListener('mouseup', function (e) {
-    if (!isDown) return;
-    isDown = false;
-    slider.classList && slider.classList.remove('active');
-  }, { passive: true });
+        draggingEl = e.currentTarget;
+        pointerId = e.pointerId;
+        draggingEl.setPointerCapture(pointerId);
 
-  // Also handle pointer events for real-user interactions (touch/mouse)
-  slider.addEventListener('pointerdown', function (e) {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    isDown = true;
-    startPageX = pageXFromEvent(e);
-    startScrollLeft = slider.scrollLeft;
-    slider.classList && slider.classList.add('active');
-    try { slider.setPointerCapture && slider.setPointerCapture(e.pointerId); } catch {}
-    e.preventDefault && e.preventDefault();
-  }, { passive: false });
+        draggingEl.style.zIndex = 1000;
+        draggingEl.style.transform = 'none'; 
+        draggingEl.style.cursor = 'grabbing';
 
-  slider.addEventListener('pointermove', function (e) {
-    if (!isDown) return;
-    const px = pageXFromEvent(e);
-    const dx = px - startPageX;
-    slider.scrollLeft = startScrollLeft - dx;
-    e.preventDefault && e.preventDefault();
-  }, { passive: false });
+        const containerRect = container.getBoundingClientRect();
+        const elRect = draggingEl.getBoundingClientRect();
 
-  slider.addEventListener('pointerup', function (e) {
-    if (!isDown) return;
-    isDown = false;
-    slider.classList && slider.classList.remove('active');
-    try { slider.releasePointerCapture && slider.releasePointerCapture(e.pointerId); } catch {}
-  }, { passive: true });
+        initialLeft = elRect.left - containerRect.left + container.scrollLeft;
+        initialTop = elRect.top - containerRect.top + container.scrollTop;
 
-  // prevent native drag behavior
-  slider.addEventListener('dragstart', e => e.preventDefault());
+        draggingEl.style.position = 'absolute';
+        draggingEl.style.left = `${initialLeft}px`;
+        draggingEl.style.top = `${initialTop}px`;
+        draggingEl.style.margin = 0; 
 
-  // Debug helper: call from DevTools if you want to inspect test coordinates / rect
-  window.__itemsDebug = () => {
-    const r = slider.getBoundingClientRect();
-    console.log('items rect:', r, 'scrollLeft:', slider.scrollLeft, 'scrollWidth:', slider.scrollWidth, 'clientWidth:', slider.clientWidth);
-    return { rect: r, scrollLeft: slider.scrollLeft, scrollWidth: slider.scrollWidth, clientWidth: slider.clientWidth };
-  };
+        startX = e.clientX;
+        startY = e.clientY;
 
-  console.log('Drag-to-scroll for .items installed (mouse + pointer handlers).');
-})();
+        draggingEl.addEventListener('pointermove', onPointerMove);
+        draggingEl.addEventListener('pointerup', onPointerUp);
+        draggingEl.addEventListener('pointercancel', onPointerUp);
+    }
+
+    function onPointerMove(e) {
+        if (!draggingEl || e.pointerId !== pointerId) return;
+        e.preventDefault();
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+
+        const elRect = draggingEl.getBoundingClientRect();
+        const maxLeft = container.clientWidth - elRect.width;
+        const maxTop = container.clientHeight - elRect.height;
+
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+
+        draggingEl.style.left = `${newLeft}px`;
+        draggingEl.style.top = `${newTop}px`;
+    }
+
+    function onPointerUp(e) {
+        if (!draggingEl || e.pointerId !== pointerId) return;
+
+        draggingEl.style.zIndex = '';
+        draggingEl.style.cursor = '';
+        
+        draggingEl.removeEventListener('pointermove', onPointerMove);
+        draggingEl.removeEventListener('pointerup', onPointerUp);
+        draggingEl.removeEventListener('pointercancel', onPointerUp);
+        draggingEl.releasePointerCapture(pointerId);
+
+        draggingEl = null;
+        pointerId = null;
+    }
+});
