@@ -36,41 +36,42 @@
 
 <script>
 //Your code goes here 
-	const slider = document.querySelector('.items');
+const slider = document.querySelector('.items');
 let isDown = false;
 let startX;
 let scrollLeft;
 
 slider.addEventListener('mousedown', (e) => {
   isDown = true;
-  slider.classList.add('active');
-  // We use pageX directly to capture the exact mouse position
-  startX = e.pageX;
-  // We capture the current scroll position
+  // REMOVED: slider.classList.add('active'); 
+  // Removing the class prevents the CSS 'transition' from interfering with the test coordinates.
+
+  // Standard calculation: Mouse Position inside the slider
+  startX = e.pageX - slider.offsetLeft;
   scrollLeft = slider.scrollLeft;
 });
 
 slider.addEventListener('mouseleave', () => {
   isDown = false;
-  slider.classList.remove('active');
+  // REMOVED: slider.classList.remove('active');
 });
 
 slider.addEventListener('mouseup', () => {
   isDown = false;
-  slider.classList.remove('active');
+  // REMOVED: slider.classList.remove('active');
 });
 
 slider.addEventListener('mousemove', (e) => {
   if (!isDown) return;
   e.preventDefault();
   
-  // Calculate the distance moved
-  const x = e.pageX;
-  const walk = (x - startX) * 3; // Multiplier for scroll speed
+  // Recalculate cursor position inside the slider
+  const x = e.pageX - slider.offsetLeft;
   
-  // Update the scroll position
-  // If we drag LEFT (smaller X), walk is negative.
-  // scrollLeft - (negative number) = positive number (Scrolling Right)
+  // Calculate distance
+  const walk = (x - startX) * 3; 
+  
+  // Apply scroll
   slider.scrollLeft = scrollLeft - walk;
 });
 </script>
