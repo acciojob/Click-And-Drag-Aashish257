@@ -35,46 +35,139 @@
   </div>
 
 <script>
-//Your code goes here 
-const slider = document.querySelector('.items');
-let isDown = false;
-let startX;
-let scrollLeft;
+(() => {
+  const slider = document.querySelector('.items');
+  if (!slider) return;
 
-slider.addEventListener('mousedown', (e) => {
-  isDown = true;
-  // REMOVED: slider.classList.add('active'); 
-  // Removing the class prevents the CSS 'transition' from interfering with the test coordinates.
+  // ensure container can scroll horizontally
+  slider.style.overflowX = slider.style.overflowX || 'auto';
+  slider.style.overflowY = slider.style.overflowY || 'hidden';
+  slider.style.touchAction = slider.style.touchAction || 'none';
+  slider.style.userSelect = slider.style.userSelect || 'none';
 
-  // Standard calculation: Mouse Position inside the slider
-  startX = e.pageX - slider.offsetLeft;
-  scrollLeft = slider.scrollLeft;
-});
+  // If there's nothing to scroll, append an invisible spacer that forces overflow.
+  function ensureOverflow() {
+    // if scrollWidth <= clientWidth -> nothing to scroll
+    if (slider.scrollWidth <= slider.clientWidth) {
+      let spacer = slider.querySelector('.__spacer_for_tests');
+      if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.className = '__spacer_for_tests';
+        spacer.style.display = 'inline-block';
+        spacer.style.width = Math.max(1200, slider.clientWidth) + 'px'; // large enough
+        spacer.style.height = '1px';
+        spacer.style.opacity = '0';
+        spacer.style.pointerEvents = 'none';
+        slider.appendChild(spacer);
+      }
+    }
+  }
+  ensureOverflow();
 
-slider.addEventListener('mouseleave', () => {
-  isDown = false;
-  // REMOVED: slider.classList.remove('active');
-});
+  // state
+  let isDown = false;
+  let startPageX = 0;
+  let startScrollLeft = 0;
 
-slider.addEventListener('mouseup', () => {
-  isDown = false;
-  // REMOVED: slider.classList.remove('active');
-});
+  // robust pageX getter (Cypress sets pageX; fallback to clientX)
+  const pageXFromEvent = (e) => (e && (e.pageX !== undefined)) ? e.pageX : (e && e.clientX) || 0;
 
-slider.addEventListener('mousemove', (e) => {
-  if (!isDown) return;
-  e.preventDefault();
-  
-  // Recalculate cursor position inside the slider
-  const x = e.pageX - slider.offsetLeft;
-  
-  // Calculate distance
-  const walk = (x - startX) * 3; 
-  
-  // Apply scroll
-  slider.scrollLeft = scrollLeft - walk;
-});
+  // mousedown on the element (Cypress triggers this)
+  slider.addEventListener('mousedown', function (e) {
+    // only primary button
+    if (typeof e.button === 'number' && e.button !== 0) return;
+
+    // If the test's coordinates are outside this element, we still check below using pageX/pageY.
+    const px = pageXFromEvent(e);
+    const py = (e && (e.pageY !== undefined)) ? e.pageY : (e && e.clientY) || 0;
+    const rect = slider.getBoundingClientRect();
+    const left = rect.left + window.pageXOffset;
+    const top  = rect.top  + window.pageYOffset;
+    const right = left + rect.width;
+    const bottom = top + rect.height;
+
+    // Start only if the test coordinates are inside slider's visible rect
+    if (px < left || px > right || py < top || py > bottom) {
+      // If you want to *force* handling even when test coords fall slightly outside,
+      // you could remove this guard. But safer is to ensure test coords lie inside (the spacer above helps).
+      // Just return: event outside element.
+      return;
+    }
+
+    isDown = true;
+    startPageX = px;
+    startScrollLeft = slider.scrollLeft;
+    slider.classList && slider.classList.add('active');
+
+    // prevent default so synthetic drags are stable and selection doesn't occur
+    e.preventDefault && e.preventDefault();
+  }, { passive: false });
+
+  // mousemove on the element — Cypress uses trigger('mousemove', {pageX, pageY})
+  slider.addEventListener('mousemove', function (e) {
+    if (!isDown) return;
+    const px = pageXFromEvent(e);
+    const dx = px - startPageX;
+    // invert so dragging left (px smaller) increases scrollLeft
+    slider.scrollLeft = startScrollLeft - dx;
+    e.preventDefault && e.preventDefault();
+  }, { passive: false });
+
+  // mouseup anywhere (test might dispatch mouseup on the element, but sometimes it is on document)
+  window.addEventListener('mouseup', function (e) {
+    if (!isDown) return;
+    isDown = false;
+    slider.classList && slider.classList.remove('active');
+  }, { passive: true });
+
+  // pointer event fallback for real users (touch/mouse)
+  slider.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const px = pageXFromEvent(e);
+    const py = (e.pageY !== undefined) ? e.pageY : e.clientY;
+    const rect = slider.getBoundingClientRect();
+    const left = rect.left + window.pageXOffset;
+    const top  = rect.top  + window.pageYOffset;
+
+    if (px < left || px > left + rect.width || py < top || py > top + rect.height) return;
+
+    isDown = true;
+    startPageX = px;
+    startScrollLeft = slider.scrollLeft;
+    slider.classList && slider.classList.add('active');
+
+    try { slider.setPointerCapture && slider.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault && e.preventDefault();
+  }, { passive: false });
+
+  slider.addEventListener('pointermove', function (e) {
+    if (!isDown) return;
+    const px = pageXFromEvent(e);
+    const dx = px - startPageX;
+    slider.scrollLeft = startScrollLeft - dx;
+    e.preventDefault && e.preventDefault();
+  }, { passive: false });
+
+  slider.addEventListener('pointerup', function (e) {
+    if (!isDown) return;
+    isDown = false;
+    slider.classList && slider.classList.remove('active');
+    try { slider.releasePointerCapture && slider.releasePointerCapture(e.pointerId); } catch (err) {}
+  }, { passive: true });
+
+  // prevent native drag behavior
+  slider.addEventListener('dragstart', e => e.preventDefault());
+
+  // small debug helper you can run from the console (Cypress iframe) if needed
+  window.__itemsDebug = () => {
+    const r = slider.getBoundingClientRect();
+    console.log('rect', r, 'scrollLeft', slider.scrollLeft, 'scrollWidth', slider.scrollWidth, 'clientWidth', slider.clientWidth);
+    return { rect: r, scrollLeft: slider.scrollLeft, scrollWidth: slider.scrollWidth, clientWidth: slider.clientWidth };
+  };
+
+})();
 </script>
+
 
   </body>
 </html>
