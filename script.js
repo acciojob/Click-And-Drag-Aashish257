@@ -3,105 +3,124 @@
   const container = document.querySelector('.items');
   if (!container) return;
 
-  // Ensure container can scroll and position children absolutely when dragged
-  const cs = getComputedStyle(container);
-  if (cs.position === 'static') container.style.position = 'relative';
-  container.style.overflow = container.style.overflow || 'auto';
-  container.style.touchAction = 'none'; // help with pointer behavior
+  // Ensure container has expected interaction behaviour
+  container.style.touchAction = container.style.touchAction || 'none';
+  container.style.userSelect = container.style.userSelect || 'none';
 
-  // ---------- Utility ----------
-  const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+  // ---------- Utilities ----------
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  // ---------- ITEM DRAG (as before) ----------
+  // Helper: get container rect and scroll offsets
+  function getContainerInfo() {
+    const rect = container.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop
+    };
+  }
+
+  // ---------- ITEM DRAG ----------
   let draggingEl = null;
-  let pointerId = null;
-  let offsetX = 0, offsetY = 0;
+  let dragPointerId = null;
+  let grabOffsetX = 0, grabOffsetY = 0;
 
   function onItemPointerDown(e) {
-    // only react to primary button for mouse
+    // Only primary button for mouse
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
-    // Prevent container panning when dragging an item
+    // Prevent container panning
     e.stopPropagation();
+    e.preventDefault();
 
-    const el = e.currentTarget;
-    draggingEl = el;
-    pointerId = e.pointerId;
+    draggingEl = e.currentTarget;
+    dragPointerId = e.pointerId;
 
-    // bring forward
-    el.style.zIndex = 1000;
-    el.style.userSelect = 'none';
-    el.style.touchAction = 'none';
+    // compute offset where pointer is inside the element
+    const containerInfo = getContainerInfo();
+    const elRect = draggingEl.getBoundingClientRect();
 
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
+    // pointer offset inside element (relative to element top-left in viewport)
+    grabOffsetX = e.clientX - elRect.left;
+    grabOffsetY = e.clientY - elRect.top;
 
-    // convert to absolute positioned inside container (keep current appearance)
-    const left = elRect.left - containerRect.left + container.scrollLeft;
-    const top = elRect.top - containerRect.top + container.scrollTop;
+    // compute left/top relative to container content area (account for scroll)
+    const left = elRect.left - containerInfo.left + containerInfo.scrollLeft;
+    const top  = elRect.top  - containerInfo.top  + containerInfo.scrollTop;
 
-    el.style.position = 'absolute';
-    el.style.left = left + 'px';
-    el.style.top = top + 'px';
+    // switch to absolute positioning while preserving current visual position
+    draggingEl.style.position = 'absolute';
+    draggingEl.style.left = left + 'px';
+    draggingEl.style.top  = top  + 'px';
+    draggingEl.style.zIndex = 1000;
+    draggingEl.style.touchAction = 'none';
+    draggingEl.style.cursor = 'grabbing';
 
-    offsetX = e.clientX - elRect.left;
-    offsetY = e.clientY - elRect.top;
+    // capture pointer for robust events
+    try { draggingEl.setPointerCapture(dragPointerId); } catch (err) {}
 
-    try { el.setPointerCapture(pointerId); } catch (err) {}
-
-    el.addEventListener('pointermove', onItemPointerMove);
-    el.addEventListener('pointerup', onItemPointerUp);
-    el.addEventListener('pointercancel', onItemPointerUp);
+    draggingEl.addEventListener('pointermove', onItemPointerMove);
+    draggingEl.addEventListener('pointerup', onItemPointerUp);
+    draggingEl.addEventListener('pointercancel', onItemPointerUp);
   }
 
   function onItemPointerMove(e) {
-    if (!draggingEl || e.pointerId !== pointerId) return;
-    const el = draggingEl;
-    const containerRect = container.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
+    if (!draggingEl || e.pointerId !== dragPointerId) return;
+    const containerInfo = getContainerInfo();
+    const elRect = draggingEl.getBoundingClientRect();
 
-    let desiredLeft = e.clientX - containerRect.left - offsetX + container.scrollLeft;
-    let desiredTop  = e.clientY - containerRect.top  - offsetY + container.scrollTop;
+    // desired left / top relative to container content (include scroll)
+    let desiredLeft = e.clientX - containerInfo.left - grabOffsetX + containerInfo.scrollLeft;
+    let desiredTop  = e.clientY - containerInfo.top  - grabOffsetY + containerInfo.scrollTop;
 
-    const maxLeft = container.clientWidth - elRect.width;
-    const maxTop  = container.clientHeight - elRect.height;
+    // Because your CSS scales height/width (item height uses calc(100% - 40px)),
+    // use the element's bounding width/height to clamp properly
+    const elWidth = elRect.width;
+    const elHeight = elRect.height;
 
-    desiredLeft = clamp(desiredLeft, 0, Math.max(0, maxLeft));
-    desiredTop  = clamp(desiredTop,  0, Math.max(0, maxTop));
+    // clamp so entire element stays inside container
+    desiredLeft = clamp(desiredLeft, 0, Math.max(0, container.clientWidth - elWidth));
+    desiredTop  = clamp(desiredTop,  0, Math.max(0, container.clientHeight - elHeight));
 
-    el.style.left = desiredLeft + 'px';
-    el.style.top  = desiredTop + 'px';
+    draggingEl.style.left = desiredLeft + 'px';
+    draggingEl.style.top  = desiredTop + 'px';
   }
 
   function onItemPointerUp(e) {
-    if (!draggingEl || e.pointerId !== pointerId) return;
-    const el = draggingEl;
+    if (!draggingEl || e.pointerId !== dragPointerId) return;
 
-    try { el.releasePointerCapture(pointerId); } catch (err) {}
-    el.removeEventListener('pointermove', onItemPointerMove);
-    el.removeEventListener('pointerup', onItemPointerUp);
-    el.removeEventListener('pointercancel', onItemPointerUp);
+    try { draggingEl.releasePointerCapture && draggingEl.releasePointerCapture(dragPointerId); } catch (err) {}
 
-    // clamp final position
-    const elRect = el.getBoundingClientRect();
-    const left = clamp(parseFloat(el.style.left) || 0, 0, Math.max(0, container.clientWidth - elRect.width));
-    const top  = clamp(parseFloat(el.style.top)  || 0, 0, Math.max(0, container.clientHeight - elRect.height));
-    el.style.left = left + 'px';
-    el.style.top  = top + 'px';
+    draggingEl.removeEventListener('pointermove', onItemPointerMove);
+    draggingEl.removeEventListener('pointerup', onItemPointerUp);
+    draggingEl.removeEventListener('pointercancel', onItemPointerUp);
 
-    el.style.zIndex = '';
+    // final clamping (safety)
+    const elRect = draggingEl.getBoundingClientRect();
+    const left = clamp(parseFloat(draggingEl.style.left) || 0, 0, Math.max(0, container.clientWidth - elRect.width));
+    const top  = clamp(parseFloat(draggingEl.style.top)  || 0, 0, Math.max(0, container.clientHeight - elRect.height));
+    draggingEl.style.left = left + 'px';
+    draggingEl.style.top  = top  + 'px';
+
+    // restore pointer cursor and stacking
+    draggingEl.style.zIndex = '';
+    draggingEl.style.cursor = '';
     draggingEl = null;
-    pointerId = null;
+    dragPointerId = null;
   }
 
+  // Attach item handlers to existing items
   function attachItemHandlers(item) {
-    item.style.userSelect = 'none';
+    item.style.touchAction = item.style.touchAction || 'none';
+    item.style.userSelect = item.style.userSelect || 'none';
     item.addEventListener('pointerdown', onItemPointerDown);
   }
-
   container.querySelectorAll('.item').forEach(attachItemHandlers);
 
-  // If items are added later
+  // Watch for dynamically added items
   new MutationObserver(muts => {
     muts.forEach(m => {
       m.addedNodes.forEach(n => {
@@ -111,81 +130,76 @@
     });
   }).observe(container, { childList: true, subtree: true });
 
-  // ---------- CONTAINER DRAG-TO-SCROLL (panning) ----------
-  // This implements click-and-drag panning for the container itself.
+  // ---------- CONTAINER PANNING (drag-to-scroll) ----------
   let isPanning = false;
+  let panPointerId = null;
   let panStartX = 0, panStartY = 0;
-  let scrollStartX = 0, scrollStartY = 0;
-  let activePanPointerId = null;
+  let panStartScrollLeft = 0, panStartScrollTop = 0;
 
   function onContainerPointerDown(e) {
-    // If the pointerdown happened on an .item (or inside), don't start container panning;
-    // item handler will have called stopPropagation() and this won't run in that case.
-    // However tests may directly target .items — allow panning then.
-    if (e.target.closest && e.target.closest('.item')) {
-      // precaution: if the event bubbled despite item handler, avoid panning
-      return;
-    }
-
-    // only primary mouse button
+    // don't start pan if pointerdown started on item (item handler stops propagation)
+    if (e.target.closest && e.target.closest('.item')) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     isPanning = true;
-    activePanPointerId = e.pointerId;
+    panPointerId = e.pointerId;
     panStartX = e.clientX;
     panStartY = e.clientY;
-    scrollStartX = container.scrollLeft;
-    scrollStartY = container.scrollTop;
+    panStartScrollLeft = container.scrollLeft;
+    panStartScrollTop = container.scrollTop;
 
-    container.style.cursor = 'grabbing';
-    try { container.setPointerCapture(activePanPointerId); } catch (err) {}
+    // visual feedback using your CSS class
+    container.classList.add('active');
+
+    try { container.setPointerCapture(panPointerId); } catch (err) {}
 
     container.addEventListener('pointermove', onContainerPointerMove);
     container.addEventListener('pointerup', onContainerPointerUp);
     container.addEventListener('pointercancel', onContainerPointerUp);
+
+    e.preventDefault();
   }
 
   function onContainerPointerMove(e) {
-    if (!isPanning || e.pointerId !== activePanPointerId) return;
-    // delta
+    if (!isPanning || e.pointerId !== panPointerId) return;
     const dx = e.clientX - panStartX;
     const dy = e.clientY - panStartY;
-
-    // move scroll opposite to mouse movement (drag content)
-    container.scrollLeft = scrollStartX - dx;
-    container.scrollTop  = scrollStartY - dy;
+    // invert so content follows pointer movement
+    container.scrollLeft = panStartScrollLeft - dx;
+    container.scrollTop  = panStartScrollTop  - dy;
   }
 
   function onContainerPointerUp(e) {
-    if (!isPanning || e.pointerId !== activePanPointerId) return;
+    if (!isPanning || e.pointerId !== panPointerId) return;
     isPanning = false;
-    try { container.releasePointerCapture(activePanPointerId); } catch (err) {}
-    container.style.cursor = '';
+    panPointerId = null;
+
+    try { container.releasePointerCapture && container.releasePointerCapture(e.pointerId); } catch (err) {}
+    container.classList.remove('active');
     container.removeEventListener('pointermove', onContainerPointerMove);
     container.removeEventListener('pointerup', onContainerPointerUp);
     container.removeEventListener('pointercancel', onContainerPointerUp);
-    activePanPointerId = null;
   }
 
-  // Attach to container for pointer events
   container.addEventListener('pointerdown', onContainerPointerDown);
 
-  // ---------- MOUSE EVENT FALLBACK for environments/tests that dispatch mouse events (Cypress) ----------
-  // Cypress often uses mouse events like mousedown/mousemove/mouseup via trigger(). The pointer handlers above will usually still be executed
-  // by the browser, but to be robust we also add a mouse fallback for container panning.
+  // ---------- MOUSE FALLBACK (for Cypress tests that trigger mouse events) ----------
   let mousePanning = false;
-  let mousePanStartX = 0, mousePanStartY = 0, mouseScrollStartX = 0, mouseScrollStartY = 0;
+  let mouseStartX = 0, mouseStartY = 0;
+  let mouseStartScrollLeft = 0, mouseStartScrollTop = 0;
 
   function onContainerMouseDown(e) {
-    // ignore if started on an item
+    // ignore item start
     if (e.target.closest && e.target.closest('.item')) return;
     if (e.button !== 0) return;
+
     mousePanning = true;
-    mousePanStartX = e.pageX;
-    mousePanStartY = e.pageY;
-    mouseScrollStartX = container.scrollLeft;
-    mouseScrollStartY = container.scrollTop;
-    container.style.cursor = 'grabbing';
+    mouseStartX = e.pageX;
+    mouseStartY = e.pageY;
+    mouseStartScrollLeft = container.scrollLeft;
+    mouseStartScrollTop = container.scrollTop;
+
+    container.classList.add('active');
     window.addEventListener('mousemove', onContainerMouseMove);
     window.addEventListener('mouseup', onContainerMouseUp);
     e.preventDefault();
@@ -193,20 +207,23 @@
 
   function onContainerMouseMove(e) {
     if (!mousePanning) return;
-    const dx = e.pageX - mousePanStartX;
-    const dy = e.pageY - mousePanStartY;
-    container.scrollLeft = mouseScrollStartX - dx;
-    container.scrollTop  = mouseScrollStartY - dy;
+    const dx = e.pageX - mouseStartX;
+    const dy = e.pageY - mouseStartY;
+    container.scrollLeft = mouseStartScrollLeft - dx;
+    container.scrollTop  = mouseStartScrollTop  - dy;
   }
 
   function onContainerMouseUp(e) {
     if (!mousePanning) return;
     mousePanning = false;
-    container.style.cursor = '';
+    container.classList.remove('active');
     window.removeEventListener('mousemove', onContainerMouseMove);
     window.removeEventListener('mouseup', onContainerMouseUp);
   }
 
   container.addEventListener('mousedown', onContainerMouseDown);
 
+  // ---------- END ----------
+  // Small safety: prevent native dragstart on images/text inside items
+  container.addEventListener('dragstart', e => e.preventDefault());
 })();
