@@ -36,6 +36,83 @@
 
 <script>
 //Your code goes here 
+const container = document.querySelector('.items');
+    const items = document.querySelectorAll('.item');
+
+    let isDragging = false;
+    let activeItem = null;
+    let offset = { x: 0, y: 0 };
+
+    // Attach event listeners to EACH cube (Requirement 2 & 3)
+    items.forEach(item => {
+        item.addEventListener('mousedown', startDrag);
+    });
+
+    // We attach move/up to window to handle fast movements outside the element
+    window.addEventListener('mousemove', drag);
+    window.addEventListener('mouseup', endDrag);
+
+    function startDrag(e) {
+        // Requirement: Click to select
+        isDragging = true;
+        activeItem = e.target;
+        activeItem.classList.add('dragging');
+
+        // Calculate where the mouse is relative to the element
+        const rect = activeItem.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        // If the item was static, we need to switch it to absolute at its current visual spot
+        // so it doesn't jump when we start dragging
+        if (activeItem.style.position !== 'absolute') {
+            activeItem.style.left = (rect.left - containerRect.left) + 'px';
+            activeItem.style.top = (rect.top - containerRect.top) + 'px';
+            activeItem.style.position = 'absolute';
+        }
+
+        offset.x = e.clientX - activeItem.getBoundingClientRect().left;
+        offset.y = e.clientY - activeItem.getBoundingClientRect().top;
+    }
+
+    function drag(e) {
+        // Requirement: Update position dynamically
+        if (!isDragging || !activeItem) return;
+        e.preventDefault();
+
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = activeItem.getBoundingClientRect();
+
+        // Calculate new X/Y relative to the container
+        let newX = e.clientX - containerRect.left - offset.x;
+        let newY = e.clientY - containerRect.top - offset.y;
+
+        // Requirement: Boundary Constraints (Snap back inside / Cannot be dragged out)
+        // We clamp the values between 0 and (ContainerSize - ItemSize)
+        const minX = 0;
+        const minY = 0;
+        const maxX = containerRect.width - itemRect.width;
+        const maxY = containerRect.height - itemRect.height;
+
+        // Apply clamping logic
+        if (newX < minX) newX = minX;
+        if (newX > maxX) newX = maxX;
+        if (newY < minY) newY = minY;
+        if (newY > maxY) newY = maxY;
+
+        // Apply the new position
+        activeItem.style.left = newX + 'px';
+        activeItem.style.top = newY + 'px';
+    }
+
+    function endDrag() {
+        // Requirement: On release, cube stays in new position
+        if (!isDragging) return;
+        isDragging = false;
+        if (activeItem) {
+            activeItem.classList.remove('dragging');
+            activeItem = null;
+        }
+    }
 </script>
 
   </body>
